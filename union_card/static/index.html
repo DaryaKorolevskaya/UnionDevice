@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Union Card</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#667085; --line:#e3e6eb; --accent:#1f5fbf; --warn:#a15c00; --warnbg:#fff6e5; --err:#b42318; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:20px 24px; border-bottom:1px solid var(--line); background:var(--card); }
+  header h1 { margin:0; font-size:20px; } header p { margin:4px 0 0; color:var(--muted); }
+  main { display:grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1.3fr); gap:20px; padding:20px 24px; max-width:1400px; margin:0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding:16px; } }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; }
+  label { display:block; font-weight:600; margin:12px 0 4px; font-size:13px; }
+  input, textarea { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font:inherit; }
+  textarea { min-height:90px; resize:vertical; } textarea.mono { font-family: ui-monospace, Menlo, monospace; font-size:13px; min-height:260px; }
+  .row { display:flex; gap:8px; margin-bottom:6px; } .row input { flex:1; } .row button { flex:0 0 auto; }
+  button { padding:8px 14px; border-radius:6px; border:1px solid var(--line); background:#fff; cursor:pointer; font:inherit; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.6; cursor:wait; }
+  .tabs { display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap; } .tabs button.active { background:var(--text); color:#fff; border-color:var(--text); }
+  .actions { display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
+  .muted { color:var(--muted); font-size:13px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:99px; background:#eef2f8; font-size:12px; color:var(--muted); }
+  .warn { background:var(--warnbg); color:var(--warn); border-radius:6px; padding:10px 12px; margin:10px 0; }
+  .err { color:var(--err); white-space:pre-wrap; }
+  .field { border-top:1px solid var(--line); padding:12px 0; } .field:first-of-type { border-top:0; }
+  .field h3 { margin:0 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); display:flex; justify-content:space-between; align-items:center; }
+  .field h3 button { font-size:12px; padding:3px 8px; text-transform:none; letter-spacing:0; }
+  table { border-collapse:collapse; width:100%; } td { border-bottom:1px solid var(--line); padding:5px 6px; vertical-align:top; }
+  td.missing { color:var(--warn); font-style:italic; }
+  pre { white-space:pre-wrap; background:#f3f4f6; padding:12px; border-radius:6px; font-size:13px; max-height:500px; overflow:auto; }
+  p.desc { white-space:pre-wrap; margin:0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Union Card</h1>
+  <p>AI-помощник контент-менеджера: черновик карточки товара КИП из технических данных. <span id="mode" class="badge"></span></p>
+</header>
+<main>
+  <section>
+    <div class="tabs">
+      <button id="tabForm" class="active" type="button">Форма</button>
+      <button id="tabJson" type="button">JSON</button>
+      <button id="loadExample" type="button">Подставить пример</button>
+    </div>
+    <div id="formView">
+      <label for="name">Название *</label><input id="name" placeholder="Манометр показывающий DM 02">
+      <label for="manufacturer">Производитель</label><input id="manufacturer" placeholder="Манотомь">
+      <label>Характеристики</label>
+      <div id="specs"></div>
+      <button id="addSpec" type="button">+ характеристика</button>
+      <label for="description">Описание / фрагмент паспорта</label><textarea id="description"></textarea>
+    </div>
+    <div id="jsonView" hidden>
+      <textarea id="json" class="mono" spellcheck="false"></textarea>
+      <p class="muted">Формат: {"name", "manufacturer", "specs": {"параметр": "значение"}, "description"}</p>
+    </div>
+    <div class="actions"><button id="go" class="primary" type="button">Сформировать карточку</button></div>
+    <p id="status" class="muted"></p>
+  </section>
+  <section id="out"><p class="muted">Здесь появится черновик карточки.</p></section>
+</main>
+<script>
+const EXAMPLE = {
+  name: "Манометр показывающий DM 02", manufacturer: "Манотомь",
+  specs: {"диапазон измерений":"0–1,6 МПа","класс точности":"1,5","присоединение":"G1/2","диаметр корпуса":"100 мм"},
+  description: "Прибор предназначен для измерения избыточного давления неагрессивных к медным сплавам жидкостей, газов и паров."
+};
+const $ = id => document.getElementById(id);
+let mode = "form", last = null;
+
+function addSpec(k = "", v = "") {
+  const row = document.createElement("div"); row.className = "row";
+  row.innerHTML = '<input placeholder="параметр"><input placeholder="значение"><button type="button" title="Удалить">✕</button>';
+  row.children[0].value = k; row.children[1].value = v;
+  row.children[2].onclick = () => row.remove();
+  $("specs").appendChild(row);
+}
+function formToObj() {
+  const specs = {};
+  for (const r of $("specs").children) { const k = r.children[0].value.trim(); if (k) specs[k] = r.children[1].value.trim(); }
+  return { name: $("name").value.trim(), manufacturer: $("manufacturer").value.trim(), specs, description: $("description").value.trim() };
+}
+function objToForm(o) {
+  $("name").value = o.name || ""; $("manufacturer").value = o.manufacturer || ""; $("description").value = o.description || "";
+  $("specs").innerHTML = ""; Object.entries(o.specs || {}).forEach(([k, v]) => addSpec(k, v)); if (!$("specs").children.length) addSpec();
+}
+function setMode(m) {
+  if (m === mode) return;
+  if (m === "json") $("json").value = JSON.stringify(formToObj(), null, 2);
+  else { try { objToForm(JSON.parse($("json").value)); } catch { alert("JSON некорректен — исправьте его, прежде чем переключаться на форму."); return; } }
+  mode = m; $("formView").hidden = m !== "form"; $("jsonView").hidden = m !== "json";
+  $("tabForm").classList.toggle("active", m === "form"); $("tabJson").classList.toggle("active", m === "json");
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const copyBtn = key => `<button type="button" data-copy="${key}">Копировать</button>`;
+
+function render(res) {
+  last = res; const c = res.card;
+  const list = a => a.length ? "<ul>" + a.map(x => `<li>${esc(x)}</li>`).join("") + "</ul>" : '<p class="muted">—</p>';
+  $("out").innerHTML = `
+    <div class="tabs"><span class="badge">${esc(c.generator)} · попыток: ${c.attempts}</span></div>
+    ${c.warnings.length ? `<div class="warn"><b>Предупреждения</b>${list(c.warnings)}</div>` : ""}
+    ${(c.missing_fields.length || c.clarifications.length) ? `<div class="warn"><b>Требует уточнения</b>${list([...c.missing_fields.map(m => "Нет данных: " + m), ...c.clarifications])}</div>` : ""}
+    <div class="field"><h3>SEO-заголовок · ${c.seo_title.length}/70 ${copyBtn("seo_title")}</h3><div>${esc(c.seo_title)}</div></div>
+    <div class="field"><h3>SEO-описание · ${c.seo_description.length} симв. ${copyBtn("seo_description")}</h3><p class="desc">${esc(c.seo_description)}</p></div>
+    <div class="field"><h3>Характеристики</h3><table>
+      <tr><td>Производитель</td><td class="${c.manufacturer === "данных нет" ? "missing" : ""}">${esc(c.manufacturer)}</td></tr>
+      ${c.characteristics.map(ch => `<tr><td>${esc(ch.name)}</td><td class="${ch.source === "missing" ? "missing" : ""}">${esc(ch.value)}</td></tr>`).join("")}
+    </table></div>
+    <div class="field"><h3>Поисковые запросы ${copyBtn("search_queries")}</h3>${list(c.search_queries)}</div>
+    <div class="field"><h3>Для менеджера</h3><b>Кому подходит</b>${list(c.commercial.target_audience)}<b>Задачи</b>${list(c.commercial.tasks)}<p><b>Как предложить:</b> ${esc(c.commercial.pitch)}</p></div>
+    <div class="field"><h3>Экспорт <span>${copyBtn("markdown")} ${copyBtn("json")}</span></h3><pre>${esc(res.markdown)}</pre></div>`;
+}
+document.addEventListener("click", e => {
+  const k = e.target.dataset && e.target.dataset.copy; if (!k || !last) return;
+  const c = last.card;
+  const text = k === "markdown" ? last.markdown : k === "json" ? JSON.stringify(c, null, 2)
+    : k === "search_queries" ? c.search_queries.join("\n") : c[k];
+  navigator.clipboard.writeText(text).then(() => { e.target.textContent = "Скопировано"; setTimeout(() => e.target.textContent = "Копировать", 1200); });
+});
+
+async function go() {
+  const body = mode === "json" ? $("json").value : JSON.stringify(formToObj());
+  $("go").disabled = true; $("status").textContent = "Генерация… (с LLM обычно 20–60 секунд)";
+  try {
+    const r = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+    const data = await r.json();
+    if (!r.ok) { $("out").innerHTML = `<p class="err"><b>Ошибка ${r.status}:</b> ${esc(data.error)}${data.details && data.details.length ? "\n• " + data.details.map(esc).join("\n• ") : ""}</p>`; $("status").textContent = ""; return; }
+    render(data); $("status").textContent = "";
+  } catch (err) { $("out").innerHTML = `<p class="err">Сервис недоступен: ${esc(err)}</p>`; }
+  finally { $("go").disabled = false; }
+}
+$("tabForm").onclick = () => setMode("form"); $("tabJson").onclick = () => setMode("json");
+$("addSpec").onclick = () => addSpec();
+$("loadExample").onclick = () => { objToForm(EXAMPLE); if (mode === "json") $("json").value = JSON.stringify(EXAMPLE, null, 2); };
+$("go").onclick = go;
+addSpec();
+fetch("/api/health").then(r => r.json()).then(h => $("mode").textContent = h.mode === "llm" ? "LLM: " + h.model : "демо-режим без LLM (нет ANTHROPIC_API_KEY)");
+</script>
+</body>
+</html>
