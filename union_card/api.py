@@ -35,7 +35,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "mode": "mock" if settings.mock else "llm", "model": settings.model}
+    return {"status": "ok", "mode": "mock" if settings.mock else "llm", "provider": settings.provider, "model": settings.model}
 
 
 @app.post("/api/generate")

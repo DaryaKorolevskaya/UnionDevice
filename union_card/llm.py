@@ -64,6 +64,70 @@ class ClaudeGenerator:
         return response.parsed_output
 
 
+class GeminiGenerator:
+    """Google Gemini (google-genai SDK). Бесплатный ключ: https://aistudio.google.com/apikey"""
+
+    def __init__(self, settings: Settings):
+        from google import genai
+        from google.genai import types
+
+        self.name = settings.model
+        self._types = types
+        self._client = genai.Client(
+            api_key=settings.api_key,
+            http_options=types.HttpOptions(
+                timeout=120_000,  # мс
+                # бесплатный тариф часто отвечает 429/503 — SDK повторит с экспоненциальной паузой
+                retry_options=types.HttpRetryOptions(attempts=4, http_status_codes=[429, 500, 502, 503, 504]),
+            ),
+        )
+
+    def generate(self, messages: List[dict]) -> LlmDraft:
+        from google.genai import errors
+
+        t = self._types
+        contents = [
+            t.Content(role="model" if m["role"] == "assistant" else "user", parts=[t.Part(text=m["content"])])
+            for m in messages
+        ]
+        try:
+            response = self._client.models.generate_content(
+                model=self.name,
+                contents=contents,
+                config=t.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    response_mime_type="application/json",
+                    response_schema=LlmDraft,
+                    temperature=0.3,  # меньше «творчества» — меньше выдумок
+                ),
+            )
+        except errors.ClientError as e:
+            if e.code in (401, 403) or "API_KEY" in str(e):
+                raise LlmError("Gemini API: неверный GEMINI_API_KEY или нет доступа.", 401) from e
+            if e.code == 404:
+                raise LlmError(f"Gemini API: модель «{self.name}» не найдена (проверьте UNION_MODEL).", 502) from e
+            if e.code == 429:
+                raise LlmError("Gemini API: исчерпана квота бесплатного тарифа, попробуйте позже.", 429) from e
+            raise LlmError(f"Gemini API отклонил запрос ({e.code}): {e.message}", 502) from e
+        except errors.ServerError as e:
+            raise LlmError(f"Gemini API временно недоступен ({e.code}), попробуйте позже.", 503) from e
+        except Exception as e:  # сеть, таймаут — SDK не даёт отдельного класса
+            raise LlmError(f"Нет связи с Gemini API: {type(e).__name__}", 503) from e
+
+        candidate = response.candidates[0] if response.candidates else None
+        reason = candidate.finish_reason.name if candidate and candidate.finish_reason else None
+        if reason in {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII"}:
+            raise LlmError("Модель отказалась обрабатывать запрос (фильтр безопасности).", 422)
+        if reason == "MAX_TOKENS":
+            raise LlmError("Модель вернула неполный ответ, попробуйте ещё раз.", 502)
+        if isinstance(response.parsed, LlmDraft):
+            return response.parsed
+        try:  # на случай, если SDK не распарсил ответ сам
+            return LlmDraft.model_validate_json(response.text or "")
+        except Exception as e:
+            raise LlmError("Модель вернула ответ не по схеме, попробуйте ещё раз.", 502) from e
+
+
 class MockGenerator:
     """Детерминированный шаблон без LLM — чтобы сервис запускался и без API-ключа.
 
@@ -95,7 +159,7 @@ class MockGenerator:
             "сверьте параметры с требованиями проекта; при необходимости менеджер поможет подобрать "
             "исполнение, комплект монтажных частей и оформит документы для закупки.",
             "Карточка сформирована в демо-режиме без LLM: текст собран по шаблону из входных данных. "
-            "Для полноценного SEO-текста укажите ANTHROPIC_API_KEY и повторите генерацию.",
+            "Для полноценного SEO-текста укажите GEMINI_API_KEY в .env и повторите генерацию.",
         ]
         desc = "\n\n".join(x for x in parts if x)
         while len(desc) < 800:

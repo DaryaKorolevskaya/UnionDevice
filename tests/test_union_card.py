@@ -112,3 +112,16 @@ def test_api_ok_and_errors(monkeypatch):
     assert r.json()["card"]["seo_title"]
     r = client.post("/api/generate", content="{oops")
     assert r.status_code == 422 and "JSON" in r.json()["error"]
+
+
+def test_provider_auto_selection(monkeypatch):
+    from union_card.config import Settings
+
+    for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "UNION_MOCK", "UNION_MODEL", "UNION_PROVIDER"):
+        monkeypatch.delenv(k, raising=False)
+    assert Settings.from_env().provider == "mock"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    assert Settings.from_env().provider == "anthropic"
+    monkeypatch.setenv("GEMINI_API_KEY", "y")
+    s = Settings.from_env()
+    assert (s.provider, s.model) == ("gemini", "gemini-flash-latest")

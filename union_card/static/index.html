@@ -126,7 +126,7 @@ document.addEventListener("click", e => {
 
 async function go() {
   const body = mode === "json" ? $("json").value : JSON.stringify(formToObj());
-  $("go").disabled = true; $("status").textContent = "Генерация… (с LLM обычно 20–60 секунд)";
+  $("go").disabled = true; $("status").textContent = "Генерация… (с LLM обычно 10–60 секунд)";
   try {
     const r = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body });
     const data = await r.json();
@@ -140,7 +140,7 @@ $("addSpec").onclick = () => addSpec();
 $("loadExample").onclick = () => { objToForm(EXAMPLE); if (mode === "json") $("json").value = JSON.stringify(EXAMPLE, null, 2); };
 $("go").onclick = go;
 addSpec();
-fetch("/api/health").then(r => r.json()).then(h => $("mode").textContent = h.mode === "llm" ? "LLM: " + h.model : "демо-режим без LLM (нет ANTHROPIC_API_KEY)");
+fetch("/api/health").then(r => r.json()).then(h => $("mode").textContent = h.mode === "llm" ? "LLM: " + h.provider + " / " + h.model : "демо-режим без LLM (нет API-ключа в .env)");
 </script>
 </body>
 </html>
