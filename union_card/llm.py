@@ -49,7 +49,7 @@ class ClaudeGenerator:
         except anthropic.PermissionDeniedError as e:
             raise LlmError("LLM API: у ключа нет доступа к выбранной модели.", 403) from e
         except anthropic.NotFoundError as e:
-            raise LlmError(f"LLM API: модель «{self.name}» не найдена (проверьте UNION_MODEL).", 502) from e
+            raise LlmError(f"LLM API: модель «{model}» не найдена (проверьте UNION_MODEL).", 404) from e
         except anthropic.RateLimitError as e:
             raise LlmError("LLM API: превышен лимит запросов, попробуйте позже.", 429) from e
         except anthropic.BadRequestError as e:
@@ -71,17 +71,21 @@ class OpenAICompatGenerator:
 
     Не все открытые модели поддерживают строгую JSON-схему, поэтому просим JSON-объект,
     кладём схему в системный промпт и валидируем ответ Pydantic'ом сами.
+
+    UNION_MODEL может содержать несколько моделей через запятую: бесплатные модели часто
+    перегружены (429 «rate-limited upstream»), тогда запрос уходит на следующую из списка.
     """
 
     def __init__(self, settings: Settings):
         import openai
 
-        self.name = settings.model
+        self._models = [m.strip() for m in settings.model.split(",") if m.strip()]
+        self._idx = 0  # модель, ответившая последней, — с неё начинаем следующий запрос
         self._openai = openai
         self._client = openai.OpenAI(
             api_key=settings.api_key or "ollama",  # Ollama ключ не проверяет
             base_url=settings.base_url,
-            max_retries=4,  # 429/5xx бесплатных моделей — частое явление
+            max_retries=1,  # при 429/5xx быстрее перейти на следующую модель, чем долго ждать
             timeout=180,
             default_headers={"X-Title": "Union Card"},
         )
@@ -91,24 +95,43 @@ class OpenAICompatGenerator:
             f"строго по этой JSON-схеме:\n{schema}\n"
         )
 
+    @property
+    def name(self) -> str:
+        return self._models[self._idx]
+
     def _call(self, messages: List[dict]) -> str:
+        last: LlmError | None = None
+        order = self._models[self._idx:] + self._models[: self._idx]
+        for model in order:
+            try:
+                text = self._call_model(model, messages)
+                self._idx = self._models.index(model)
+                return text
+            except LlmError as e:
+                if e.status not in (404, 429, 503):  # ключ/оплата/запрос — другая модель не поможет
+                    raise
+                last = e
+        assert last is not None
+        raise last
+
+    def _call_model(self, model: str, messages: List[dict]) -> str:
         oa = self._openai
         try:
             resp = self._client.chat.completions.create(
-                model=self.name,
+                model=model,
                 messages=[{"role": "system", "content": self._system}, *messages],
                 response_format={"type": "json_object"},
                 temperature=0.3,  # меньше «творчества» — меньше выдумок
-                max_tokens=4000,
+                max_tokens=8000,  # запас для моделей с рассуждением
             )
         except oa.AuthenticationError as e:
             raise LlmError("LLM API: неверный API-ключ.", 401) from e
         except oa.PermissionDeniedError as e:
             raise LlmError("LLM API: нет доступа к модели.", 403) from e
         except oa.NotFoundError as e:
-            raise LlmError(f"LLM API: модель «{self.name}» не найдена (проверьте UNION_MODEL).", 502) from e
+            raise LlmError(f"LLM API: модель «{model}» не найдена (проверьте UNION_MODEL).", 404) from e
         except oa.RateLimitError as e:
-            raise LlmError("LLM API: исчерпан лимит бесплатных запросов, попробуйте позже.", 429) from e
+            raise LlmError("LLM API: бесплатные модели перегружены или исчерпан дневной лимит, попробуйте позже.", 429) from e
         except oa.BadRequestError as e:
             raise LlmError(f"LLM API отклонил запрос: {e.message}", 502) from e
         except oa.APIStatusError as e:

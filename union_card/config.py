@@ -11,7 +11,11 @@ load_dotenv()
 
 PROVIDERS = {
     # провайдер: (модель по умолчанию, base_url для OpenAI-совместимых API)
-    "openrouter": ("google/gemma-4-31b-it:free", "https://openrouter.ai/api/v1"),  # открытая модель, бесплатно
+    # открытые модели, бесплатно; при перегрузке первой запрос уходит на следующую
+    "openrouter": (
+        "google/gemma-4-31b-it:free,nvidia/nemotron-3.5-super-vl:free,openrouter/free",
+        "https://openrouter.ai/api/v1",
+    ),
     "ollama": ("qwen2.5:7b-instruct", "http://localhost:11434/v1"),  # локально, без ключа
     "gemini": ("gemini-3.8-flash", None),
     "anthropic": ("claude-opus-5-5", None),
@@ -56,10 +60,11 @@ class Settings:
             raise ValueError(f"Для UNION_PROVIDER={provider} не задан API-ключ в .env")
         default_model, default_url = PROVIDERS[provider]
         model = os.getenv("UNION_MODEL") or default_model
-        if provider == "openrouter" and not is_free_openrouter_model(model):
+        paid = [m.strip() for m in model.split(",") if m.strip() and not is_free_openrouter_model(m.strip())]
+        if provider == "openrouter" and paid:
             if os.getenv("UNION_ALLOW_PAID", "").strip().lower() not in {"1", "true", "yes"}:
                 raise ValueError(
-                    f"Модель «{model}» на OpenRouter платная. Разрешены только бесплатные модели "
+                    f"Модель «{paid[0]}» на OpenRouter платная. Разрешены только бесплатные модели "
                     "(id оканчивается на «:free» или openrouter/free). Чтобы всё же использовать платную, "
                     "задайте UNION_ALLOW_PAID=1."
                 )
