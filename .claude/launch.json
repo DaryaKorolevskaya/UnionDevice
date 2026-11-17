@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    {"name": "union-card", "runtimeExecutable": "uv", "runtimeArgs": ["run", "uvicorn", "union_card.api:app", "--port", "8000"], "port": 8000}
+    {"name": "union-device", "runtimeExecutable": "uv", "runtimeArgs": ["run", "uvicorn", "union_device.api:app", "--port", "8000"], "port": 8000}
   ]
 }

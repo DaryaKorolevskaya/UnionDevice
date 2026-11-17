@@ -1,4 +1,4 @@
-"""CLI: python -m union_card.cli data/products.json -o examples/
+"""CLI: python -m union_device.cli data/products.json -o examples/
 
 Принимает файл с одним товаром или списком товаров, сохраняет JSON и Markdown на каждый товар.
 """

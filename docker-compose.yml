@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    image: union-device
+    ports:
+      - "8000:8000"
+    # ключи и настройки берутся из .env (не попадает в образ и в git):
+    # перед запуском выполните cp .env.example .env
+    env_file: .env
+    restart: unless-stopped

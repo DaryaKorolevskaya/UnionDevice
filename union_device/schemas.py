@@ -24,6 +24,12 @@ class Commercial(BaseModel):
     pitch: str = Field(description="1–2 предложения для менеджера: как предложить прибор клиенту")
 
 
+class DescriptionFact(BaseModel):
+    name: str = Field(description="Название характеристики, например «Измеряемая среда»")
+    value: str = Field(description="Значение, как оно указано в описании")
+    quote: str = Field(description="Дословная цитата из поля description, где указано это значение")
+
+
 class LlmDraft(BaseModel):
     seo_title: str = Field(description="SEO-заголовок, не длиннее 70 символов")
     seo_description: str = Field(description="SEO-описание 800–1200 символов, без выдуманных значений")
@@ -32,6 +38,10 @@ class LlmDraft(BaseModel):
     clarifications: List[str] = Field(
         description="Что стоит уточнить у производителя/технолога, чтобы карточка была полной"
     )
+    description_facts: List[DescriptionFact] = Field(
+        default_factory=list,
+        description="Характеристики, которые явно указаны в описании, но отсутствуют в specs",
+    )
 
 
 # --- Итоговая карточка ----------------------------------------------------------
@@ -39,7 +49,7 @@ class LlmDraft(BaseModel):
 class Characteristic(BaseModel):
     name: str
     value: str
-    source: Literal["input", "missing"]
+    source: Literal["input", "description", "missing"]  # description — найдено в описании, проверьте
 
 
 class ProductCard(BaseModel):

@@ -20,7 +20,10 @@ def to_markdown(c: ProductCard) -> str:
         "| Характеристика | Значение |",
         "|---|---|",
         f"| Производитель | {c.manufacturer} |",
-        *[f"| {ch.name} | {ch.value} |" for ch in c.characteristics],
+        *[
+            f"| {ch.name} | {ch.value}{' _(из описания, проверьте)_' if ch.source == 'description' else ''} |"
+            for ch in c.characteristics
+        ],
         "",
         "## Поисковые запросы",
         "",

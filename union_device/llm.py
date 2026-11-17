@@ -16,9 +16,10 @@ from .schemas import Commercial, LlmDraft
 class LlmError(RuntimeError):
     """Ошибка обращения к LLM, которую можно показать пользователю."""
 
-    def __init__(self, message: str, status: int = 502):
+    def __init__(self, message: str, status: int = 502, retryable: bool = False):
         super().__init__(message)
         self.status = status
+        self.retryable = retryable  # имеет смысл попробовать другую модель
 
 
 class Generator(Protocol):
@@ -80,6 +81,8 @@ class OpenAICompatGenerator:
         import openai
 
         self._models = [m.strip() for m in settings.model.split(",") if m.strip()]
+        # OpenRouter: просим модели с рассуждением думать недолго, иначе они съедают лимит токенов
+        self._extra = {"reasoning": {"effort": "low"}} if settings.provider == "openrouter" else None
         self._idx = 0  # модель, ответившая последней, — с неё начинаем следующий запрос
         self._openai = openai
         self._client = openai.OpenAI(
@@ -87,7 +90,7 @@ class OpenAICompatGenerator:
             base_url=settings.base_url,
             max_retries=1,  # при 429/5xx быстрее перейти на следующую модель, чем долго ждать
             timeout=180,
-            default_headers={"X-Title": "Union Card"},
+            default_headers={"X-Title": "UnionDevice"},
         )
         schema = json.dumps(LlmDraft.model_json_schema(), ensure_ascii=False)
         self._system = (
@@ -108,7 +111,7 @@ class OpenAICompatGenerator:
                 self._idx = self._models.index(model)
                 return text
             except LlmError as e:
-                if e.status not in (404, 429, 503):  # ключ/оплата/запрос — другая модель не поможет
+                if not (e.retryable or e.status in (404, 429, 503)):  # ключ/оплата — другая модель не поможет
                     raise
                 last = e
         assert last is not None
@@ -122,7 +125,8 @@ class OpenAICompatGenerator:
                 messages=[{"role": "system", "content": self._system}, *messages],
                 response_format={"type": "json_object"},
                 temperature=0.3,  # меньше «творчества» — меньше выдумок
-                max_tokens=8000,  # запас для моделей с рассуждением
+                max_tokens=16000,  # запас для моделей с рассуждением
+                extra_body=self._extra,
             )
         except oa.AuthenticationError as e:
             raise LlmError("LLM API: неверный API-ключ.", 401) from e
@@ -138,13 +142,15 @@ class OpenAICompatGenerator:
             if e.status_code == 402:
                 raise LlmError("LLM API требует оплату — выбранная модель не бесплатная.", 402) from e
             raise LlmError(f"LLM API вернул ошибку {e.status_code}, попробуйте позже.", 503) from e
+        except oa.APITimeoutError as e:
+            raise LlmError("Модель не ответила вовремя (бесплатные модели бывают медленными), попробуйте ещё раз.", 504, retryable=True) from e
         except oa.APIConnectionError as e:
-            raise LlmError("Нет связи с LLM API (сеть/таймаут, для Ollama — запущена ли она?).", 503) from e
+            raise LlmError("Нет связи с LLM API (сеть, для Ollama — запущена ли она?).", 503) from e
         if not resp.choices:
             raise LlmError("LLM API вернул пустой ответ, попробуйте ещё раз.", 502)
         choice = resp.choices[0]
         if choice.finish_reason == "length":
-            raise LlmError("Модель вернула неполный ответ, попробуйте ещё раз.", 502)
+            raise LlmError("Модель вернула неполный ответ, попробуйте ещё раз.", 502, retryable=True)
         return choice.message.content or ""
 
     def generate(self, messages: List[dict]) -> LlmDraft:

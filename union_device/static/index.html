@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Union Card</title>
+<title>UnionDevice</title>
 <style>
   :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#667085; --line:#e3e6eb; --accent:#1f5fbf; --warn:#a15c00; --warnbg:#fff6e5; --err:#b42318; }
   * { box-sizing: border-box; }
@@ -37,7 +37,7 @@
 </head>
 <body>
 <header>
-  <h1>Union Card</h1>
+  <h1>UnionDevice</h1>
   <p>AI-помощник контент-менеджера: черновик карточки товара КИП из технических данных. <span id="mode" class="badge"></span></p>
 </header>
 <main>
@@ -110,7 +110,7 @@ function render(res) {
     <div class="field"><h3>SEO-описание · ${c.seo_description.length} симв. ${copyBtn("seo_description")}</h3><p class="desc">${esc(c.seo_description)}</p></div>
     <div class="field"><h3>Характеристики</h3><table>
       <tr><td>Производитель</td><td class="${c.manufacturer === "данных нет" ? "missing" : ""}">${esc(c.manufacturer)}</td></tr>
-      ${c.characteristics.map(ch => `<tr><td>${esc(ch.name)}</td><td class="${ch.source === "missing" ? "missing" : ""}">${esc(ch.value)}</td></tr>`).join("")}
+      ${c.characteristics.map(ch => `<tr><td>${esc(ch.name)}</td><td class="${ch.source === "missing" ? "missing" : ""}">${esc(ch.value)}${ch.source === "description" ? ' <span class="badge" title="Значение найдено в описании по дословной цитате — проверьте">из описания</span>' : ""}</td></tr>`).join("")}
     </table></div>
     <div class="field"><h3>Поисковые запросы ${copyBtn("search_queries")}</h3>${list(c.search_queries)}</div>
     <div class="field"><h3>Для менеджера</h3><b>Кому подходит</b>${list(c.commercial.target_audience)}<b>Задачи</b>${list(c.commercial.tasks)}<p><b>Как предложить:</b> ${esc(c.commercial.pitch)}</p></div>
@@ -140,7 +140,7 @@ $("addSpec").onclick = () => addSpec();
 $("loadExample").onclick = () => { objToForm(EXAMPLE); if (mode === "json") $("json").value = JSON.stringify(EXAMPLE, null, 2); };
 $("go").onclick = go;
 addSpec();
-fetch("/api/health").then(r => r.json()).then(h => $("mode").textContent = h.mode === "llm" ? "LLM: " + h.provider + " / " + h.model : "демо-режим без LLM (нет API-ключа в .env)");
+fetch("/api/health").then(r => r.json()).then(h => $("mode").textContent = h.mode === "llm" ? "LLM: " + h.provider + " · " + h.model.split(",")[0] + (h.model.includes(",") ? " (+ запасные)" : "") : "демо-режим без LLM (нет API-ключа в .env)");
 </script>
 </body>
 </html>

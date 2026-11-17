@@ -15,7 +15,7 @@ from .validation import InputError, parse_json
 
 STATIC = Path(__file__).parent / "static"
 
-app = FastAPI(title="Union Card — AI-помощник для карточек КИП", version="0.1.0")
+app = FastAPI(title="UnionDevice — AI-помощник для карточек КИП", version="0.1.0")
 
 
 @app.exception_handler(InputError)

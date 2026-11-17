@@ -3,11 +3,11 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from union_card.api import app
-from union_card.checks import find_problems
-from union_card.schemas import NO_DATA, Commercial, LlmDraft
-from union_card.service import generate_card
-from union_card.validation import InputError, parse_json, validate_product
+from union_device.api import app
+from union_device.checks import find_problems
+from union_device.schemas import NO_DATA, Commercial, LlmDraft
+from union_device.service import generate_card
+from union_device.validation import InputError, parse_json, validate_product
 
 MANOMETER = {
     "name": "Манометр показывающий DM 02",
@@ -22,7 +22,7 @@ def draft(**kw):
         seo_title="Манометр DM 02 0–1,6 МПа G1/2 Манотомь",
         seo_description="Манометр DM 02 с диапазоном 0–1,6 МПа и классом точности 1,5. " * 15,
         search_queries=["манометр dm 02", "манометр 0-1,6 мпа", "манометр g1/2 100 мм"],
-        commercial=Commercial(target_audience=["КИПиА"], tasks=["контроль давления"], pitch="Надёжный манометр."),
+        commercial=Commercial(target_audience=["КИПиА"], tasks=["контроль давления"], pitch="Манометр для систем водоснабжения."),
         clarifications=[],
     )
     base.update(kw)
@@ -115,7 +115,7 @@ def test_api_ok_and_errors(monkeypatch):
 
 
 def test_provider_auto_selection(monkeypatch):
-    from union_card.config import Settings
+    from union_device.config import Settings
 
     for k in ("OPENROUTER_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "UNION_MOCK", "UNION_MODEL", "UNION_PROVIDER", "UNION_BASE_URL"):
         monkeypatch.delenv(k, raising=False)
@@ -128,8 +128,8 @@ def test_provider_auto_selection(monkeypatch):
 
 
 def test_strip_fences_and_openrouter_default(monkeypatch):
-    from union_card.config import Settings
-    from union_card.llm import _strip_fences
+    from union_device.config import Settings
+    from union_device.llm import _strip_fences
 
     assert _strip_fences('```json\n{"a": 1}\n```') == '{"a": 1}'
     assert _strip_fences('Вот ответ: {"a": 1} готово') == '{"a": 1}'
@@ -142,7 +142,7 @@ def test_strip_fences_and_openrouter_default(monkeypatch):
 
 
 def test_paid_openrouter_model_rejected(monkeypatch):
-    from union_card.config import Settings
+    from union_device.config import Settings
 
     monkeypatch.delenv("UNION_ALLOW_PAID", raising=False)
     monkeypatch.setenv("UNION_PROVIDER", "openrouter")
@@ -155,3 +155,22 @@ def test_paid_openrouter_model_rejected(monkeypatch):
         Settings.from_env()
     monkeypatch.setenv("UNION_MODEL", "qwen/some-model:free")
     assert Settings.from_env().model == "qwen/some-model:free"
+
+
+def test_subjective_claim_flagged():
+    product = validate_product(MANOMETER).product
+    problems = find_problems(draft(seo_description=draft().seo_description + " Высокая точность и надёжность."), product)
+    assert any("высокая точность" in p and "надёжный" in p for p in problems)
+
+
+def test_description_facts_verified():
+    from union_device.schemas import DescriptionFact
+
+    good = DescriptionFact(name="Измеряемая среда", value="жидкости и газы", quote="избыточного давления жидкостей и газов")
+    fake = DescriptionFact(name="Рабочая температура", value="до 150 °C", quote="температура до 150 °C")
+    res = generate_card(MANOMETER, generator=FakeGen([draft(description_facts=[good, fake])]))
+    rows = {c.name: c for c in res.card.characteristics}
+    assert rows["Измеряемая среда"].source == "description"
+    assert rows["Рабочая температура"].value == NO_DATA  # выдуманная цитата отброшена
+    assert any("Рабочая температура" in w for w in res.card.warnings)
+    assert not any("Измеряемая среда" in m for m in res.card.missing_fields)
