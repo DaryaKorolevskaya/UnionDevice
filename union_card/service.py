@@ -6,7 +6,7 @@ from typing import Any, List
 
 from .checks import find_problems
 from .config import Settings, settings as default_settings
-from .llm import ClaudeGenerator, GeminiGenerator, Generator, MockGenerator
+from .llm import ClaudeGenerator, GeminiGenerator, Generator, MockGenerator, OpenAICompatGenerator
 from .prompts import build_repair_prompt, build_user_prompt
 from .render import to_markdown
 from .schemas import NO_DATA, Characteristic, GenerateResponse, LlmDraft, ProductCard
@@ -14,6 +14,8 @@ from .validation import EXPECTED_SPECS, ValidatedInput, validate_product
 
 
 def make_generator(s: Settings = default_settings) -> Generator:
+    if s.provider in ("openrouter", "ollama"):
+        return OpenAICompatGenerator(s)
     if s.provider == "gemini":
         return GeminiGenerator(s)
     if s.provider == "anthropic":

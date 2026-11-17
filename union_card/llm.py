@@ -1,10 +1,12 @@
-"""Клиенты генерации: Claude через Anthropic API и офлайн-заглушка для демо без ключа."""
+"""Клиенты генерации: OpenAI-совместимые API (OpenRouter, Ollama), Gemini, Claude и офлайн-заглушка."""
 
 from __future__ import annotations
 
+import json
 from typing import List, Protocol
 
 import anthropic
+from pydantic import ValidationError
 
 from .config import Settings
 from .prompts import SYSTEM_PROMPT
@@ -64,6 +66,86 @@ class ClaudeGenerator:
         return response.parsed_output
 
 
+class OpenAICompatGenerator:
+    """Любой OpenAI-совместимый API: OpenRouter (открытые модели, есть бесплатные) или локальная Ollama.
+
+    Не все открытые модели поддерживают строгую JSON-схему, поэтому просим JSON-объект,
+    кладём схему в системный промпт и валидируем ответ Pydantic'ом сами.
+    """
+
+    def __init__(self, settings: Settings):
+        import openai
+
+        self.name = settings.model
+        self._openai = openai
+        self._client = openai.OpenAI(
+            api_key=settings.api_key or "ollama",  # Ollama ключ не проверяет
+            base_url=settings.base_url,
+            max_retries=4,  # 429/5xx бесплатных моделей — частое явление
+            timeout=180,
+            default_headers={"X-Title": "Union Card"},
+        )
+        schema = json.dumps(LlmDraft.model_json_schema(), ensure_ascii=False)
+        self._system = (
+            f"{SYSTEM_PROMPT}\n## Формат ответа\nВерни ТОЛЬКО JSON-объект без markdown и пояснений, "
+            f"строго по этой JSON-схеме:\n{schema}\n"
+        )
+
+    def _call(self, messages: List[dict]) -> str:
+        oa = self._openai
+        try:
+            resp = self._client.chat.completions.create(
+                model=self.name,
+                messages=[{"role": "system", "content": self._system}, *messages],
+                response_format={"type": "json_object"},
+                temperature=0.3,  # меньше «творчества» — меньше выдумок
+                max_tokens=4000,
+            )
+        except oa.AuthenticationError as e:
+            raise LlmError("LLM API: неверный API-ключ.", 401) from e
+        except oa.PermissionDeniedError as e:
+            raise LlmError("LLM API: нет доступа к модели.", 403) from e
+        except oa.NotFoundError as e:
+            raise LlmError(f"LLM API: модель «{self.name}» не найдена (проверьте UNION_MODEL).", 502) from e
+        except oa.RateLimitError as e:
+            raise LlmError("LLM API: исчерпан лимит бесплатных запросов, попробуйте позже.", 429) from e
+        except oa.BadRequestError as e:
+            raise LlmError(f"LLM API отклонил запрос: {e.message}", 502) from e
+        except oa.APIStatusError as e:
+            raise LlmError(f"LLM API вернул ошибку {e.status_code}, попробуйте позже.", 503) from e
+        except oa.APIConnectionError as e:
+            raise LlmError("Нет связи с LLM API (сеть/таймаут, для Ollama — запущена ли она?).", 503) from e
+        if not resp.choices:
+            raise LlmError("LLM API вернул пустой ответ, попробуйте ещё раз.", 502)
+        choice = resp.choices[0]
+        if choice.finish_reason == "length":
+            raise LlmError("Модель вернула неполный ответ, попробуйте ещё раз.", 502)
+        return choice.message.content or ""
+
+    def generate(self, messages: List[dict]) -> LlmDraft:
+        text = self._call(messages)
+        try:
+            return LlmDraft.model_validate_json(_strip_fences(text))
+        except ValidationError as e:
+            # одна повторная попытка с сообщением об ошибке формата
+            retry = [*messages, {"role": "assistant", "content": text},
+                     {"role": "user", "content": f"Ответ не соответствует схеме: {e.errors()[:3]}. Верни исправленный JSON."}]
+            try:
+                return LlmDraft.model_validate_json(_strip_fences(self._call(retry)))
+            except ValidationError as e2:
+                raise LlmError("Модель дважды вернула ответ не по схеме, попробуйте другую модель.", 502) from e2
+
+
+def _strip_fences(text: str) -> str:
+    """Некоторые модели оборачивают JSON в ```json ... ``` даже при json_object."""
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.split("\n", 1)[1] if "\n" in t else t
+        t = t.rsplit("```", 1)[0]
+    start, end = t.find("{"), t.rfind("}")
+    return t[start : end + 1] if start != -1 and end != -1 else t
+
+
 class GeminiGenerator:
     """Google Gemini (google-genai SDK). Бесплатный ключ: https://aistudio.google.com/apikey"""
 
@@ -104,6 +186,11 @@ class GeminiGenerator:
         except errors.ClientError as e:
             if e.code in (401, 403) or "API_KEY" in str(e):
                 raise LlmError("Gemini API: неверный GEMINI_API_KEY или нет доступа.", 401) from e
+            if "location is not supported" in (e.message or ""):
+                raise LlmError(
+                    "Gemini API недоступен из вашего региона (User location is not supported). "
+                    "Используйте другой провайдер в UNION_PROVIDER.", 451
+                ) from e
             if e.code == 404:
                 raise LlmError(f"Gemini API: модель «{self.name}» не найдена (проверьте UNION_MODEL).", 502) from e
             if e.code == 429:
@@ -159,7 +246,7 @@ class MockGenerator:
             "сверьте параметры с требованиями проекта; при необходимости менеджер поможет подобрать "
             "исполнение, комплект монтажных частей и оформит документы для закупки.",
             "Карточка сформирована в демо-режиме без LLM: текст собран по шаблону из входных данных. "
-            "Для полноценного SEO-текста укажите GEMINI_API_KEY в .env и повторите генерацию.",
+            "Для полноценного SEO-текста укажите OPENROUTER_API_KEY в .env и повторите генерацию.",
         ]
         desc = "\n\n".join(x for x in parts if x)
         while len(desc) < 800:

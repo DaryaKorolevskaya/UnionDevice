@@ -117,11 +117,24 @@ def test_api_ok_and_errors(monkeypatch):
 def test_provider_auto_selection(monkeypatch):
     from union_card.config import Settings
 
-    for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "UNION_MOCK", "UNION_MODEL", "UNION_PROVIDER"):
+    for k in ("OPENROUTER_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "UNION_MOCK", "UNION_MODEL", "UNION_PROVIDER", "UNION_BASE_URL"):
         monkeypatch.delenv(k, raising=False)
     assert Settings.from_env().provider == "mock"
     monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
     assert Settings.from_env().provider == "anthropic"
     monkeypatch.setenv("GEMINI_API_KEY", "y")
     s = Settings.from_env()
-    assert (s.provider, s.model) == ("gemini", "gemini-flash-latest")
+    assert (s.provider, s.model) == ("gemini", "gemini-3.8-flash")
+
+
+def test_strip_fences_and_openrouter_default(monkeypatch):
+    from union_card.config import Settings
+    from union_card.llm import _strip_fences
+
+    assert _strip_fences('```json\n{"a": 1}\n```') == '{"a": 1}'
+    assert _strip_fences('Вот ответ: {"a": 1} готово') == '{"a": 1}'
+    for k in ("OPENROUTER_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "UNION_MOCK", "UNION_MODEL", "UNION_PROVIDER", "UNION_BASE_URL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    s = Settings.from_env()
+    assert s.provider == "openrouter" and s.model.endswith(":free") and "openrouter.ai" in s.base_url
