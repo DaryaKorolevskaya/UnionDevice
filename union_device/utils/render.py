@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .schemas import ProductCard
+from ..core.schemas import ProductCard
 
 
 def to_markdown(c: ProductCard) -> str:

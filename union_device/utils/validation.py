@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from .schemas import ProductInput
+from ..core.schemas import ProductInput
 
 
 class InputError(ValueError):
@@ -33,6 +33,26 @@ EXPECTED_SPECS: Dict[str, List[str]] = {
     "Корпус / степень защиты": ["корпус", r"\bip\d*\b", "защит", "исполнени"],
     "Рабочая температура": ["температур"],
 }
+
+
+# Ограничения размера входа: защита от слишком дорогих запросов и «простыней» с инструкциями.
+MAX_NAME = 300
+MAX_DESCRIPTION = 10_000
+MAX_SPECS = 100
+MAX_SPEC_LEN = 1_000
+
+# Теги, которыми данные отделены от инструкций в промпте: из входа их вырезаем,
+# чтобы нельзя было «закрыть» блок <product> и дописать свои инструкции.
+_TAG_RE = re.compile(r"<\s*/?\s*product\s*>", re.IGNORECASE)
+
+# Признаки попытки prompt injection во входных данных. Не блокируем (это могут быть и реальные
+# данные), но предупреждаем контент-менеджера; модель по промпту такие команды не выполняет.
+_INJECTION_RE = re.compile(
+    r"ignore (all |the )?(previous|above)|disregard|system prompt|you are now|"
+    r"игнорир\w*|забудь\w*|предыдущ\w* инструкц|системн\w* промпт|ты теперь|новые инструкции|"
+    r"не выполня\w* правил|выведи (промпт|инструкц)",
+    re.IGNORECASE,
+)
 
 
 def _norm(s: str) -> str:
@@ -68,7 +88,7 @@ def _as_str(value: Any) -> str:
     if isinstance(value, (int, float)):
         return str(value)
     if isinstance(value, str):
-        return value.strip()
+        return _TAG_RE.sub("", value).strip()
     if isinstance(value, list):
         return ", ".join(_as_str(v) for v in value if _as_str(v))
     return json.dumps(value, ensure_ascii=False)
@@ -97,6 +117,8 @@ def validate_product(data: Any) -> ValidatedInput:
             raise InputError("Поле «specs» должно быть объектом {\"характеристика\": \"значение\"}.")
     if not isinstance(raw_specs, dict):
         raise InputError("Поле «specs» должно быть объектом {\"характеристика\": \"значение\"}.")
+    if len(raw_specs) > MAX_SPECS:
+        raise InputError(f"Слишком много характеристик: {len(raw_specs)}, допустимо до {MAX_SPECS}.")
 
     specs: Dict[str, str] = {}
     empty_specs: List[str] = []
@@ -104,6 +126,8 @@ def validate_product(data: Any) -> ValidatedInput:
         k_s, v_s = _as_str(k), _as_str(v)
         if not k_s:
             continue
+        if len(k_s) > MAX_SPEC_LEN or len(v_s) > MAX_SPEC_LEN:
+            raise InputError(f"Характеристика «{k_s[:50]}» длиннее {MAX_SPEC_LEN} символов.")
         if not v_s or _norm(v_s) in {"-", "—", "n/a", "нет данных", "данных нет", "?"}:
             empty_specs.append(k_s)
             continue
@@ -115,6 +139,17 @@ def validate_product(data: Any) -> ValidatedInput:
         specs=specs,
         description=_as_str(data.get("description")),
     )
+
+    if len(product.name) > MAX_NAME:
+        raise InputError(f"Название длиннее {MAX_NAME} символов.")
+    if len(product.description) > MAX_DESCRIPTION:
+        raise InputError(f"Описание длиннее {MAX_DESCRIPTION} символов.")
+    blob = " ".join([product.name, product.manufacturer, product.description, *specs, *specs.values()])
+    if _INJECTION_RE.search(blob):
+        warnings.append(
+            "Во входных данных похоже на посторонние инструкции для модели — они не выполняются, "
+            "но проверьте источник данных."
+        )
 
     missing_fields = [
         label

@@ -4,23 +4,13 @@ from __future__ import annotations
 
 from typing import Any, List
 
+from ..config import settings
+from ..utils.render import to_markdown
+from ..utils.validation import EXPECTED_SPECS, ValidatedInput, find_spec, validate_product
 from .checks import find_problems, verify_description_facts
-from .config import Settings, settings as default_settings
-from .llm import ClaudeGenerator, GeminiGenerator, Generator, MockGenerator, OpenAICompatGenerator
+from .llm import LLMClient
 from .prompts import build_repair_prompt, build_user_prompt
-from .render import to_markdown
 from .schemas import NO_DATA, Characteristic, DescriptionFact, GenerateResponse, LlmDraft, ProductCard
-from .validation import EXPECTED_SPECS, ValidatedInput, find_spec, validate_product
-
-
-def make_generator(s: Settings = default_settings) -> Generator:
-    if s.provider in ("openrouter", "ollama"):
-        return OpenAICompatGenerator(s)
-    if s.provider == "gemini":
-        return GeminiGenerator(s)
-    if s.provider == "anthropic":
-        return ClaudeGenerator(s)
-    return MockGenerator()
 
 
 def _cap(s: str) -> str:
@@ -62,19 +52,17 @@ def dedupe_clarifications(clarifications: List[str], missing: List[str]) -> List
     return out
 
 
-def generate_card(data: Any, generator: Generator | None = None, max_attempts: int | None = None) -> GenerateResponse:
+def generate_card(data: Any, client: LLMClient | None = None, max_attempts: int | None = None) -> GenerateResponse:
     v = validate_product(data)  # InputError → 422
-    gen = generator or make_generator()
-    attempts_limit = max_attempts or default_settings.max_attempts
-    if isinstance(gen, MockGenerator):
-        gen.product = v.product
+    llm = client or LLMClient()  # LlmError, если не задан ключ
+    attempts_limit = max_attempts or settings.max_attempts
 
     messages: List[dict] = [{"role": "user", "content": build_user_prompt(v)}]
     draft: LlmDraft | None = None
     problems: List[str] = []
     attempt = 0
     for attempt in range(1, attempts_limit + 1):
-        draft = gen.generate(messages)  # LlmError → 4xx/5xx
+        draft = llm.generate(messages)  # LlmError → 4xx/5xx
         problems = find_problems(draft, v.product)
         if not problems:
             break
@@ -105,7 +93,7 @@ def generate_card(data: Any, generator: Generator | None = None, max_attempts: i
         missing_fields=missing,
         clarifications=dedupe_clarifications(draft.clarifications, missing),
         warnings=warnings,
-        generator=gen.name,
+        generator=llm.name,
         attempts=attempt,
     )
     return GenerateResponse(card=card, markdown=to_markdown(card))

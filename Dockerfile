@@ -1,20 +1,16 @@
 FROM python:3.12-slim
 
-# uv только для установки зависимостей по lock-файлу (воспроизводимая сборка)
-COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /bin/uv
-
 WORKDIR /app
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1 PATH="/app/.venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
 COPY union_device ./union_device
-COPY data ./data
 
-RUN useradd --create-home app && chown -R app /app
+RUN useradd --create-home app
 USER app
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"
-CMD ["uvicorn", "union_device.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "union_device.main:app", "--host", "0.0.0.0", "--port", "8000"]

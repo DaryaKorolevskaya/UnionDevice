@@ -45,7 +45,6 @@
     <div class="tabs">
       <button id="tabForm" class="active" type="button">Форма</button>
       <button id="tabJson" type="button">JSON</button>
-      <button id="loadExample" type="button">Подставить пример</button>
     </div>
     <div id="formView">
       <label for="name">Название *</label><input id="name" placeholder="Манометр показывающий DM 02">
@@ -65,11 +64,6 @@
   <section id="out"><p class="muted">Здесь появится черновик карточки.</p></section>
 </main>
 <script>
-const EXAMPLE = {
-  name: "Манометр показывающий DM 02", manufacturer: "Манотомь",
-  specs: {"диапазон измерений":"0–1,6 МПа","класс точности":"1,5","присоединение":"G1/2","диаметр корпуса":"100 мм"},
-  description: "Прибор предназначен для измерения избыточного давления неагрессивных к медным сплавам жидкостей, газов и паров."
-};
 const $ = id => document.getElementById(id);
 let mode = "form", last = null;
 
@@ -114,12 +108,12 @@ function render(res) {
     </table></div>
     <div class="field"><h3>Поисковые запросы ${copyBtn("search_queries")}</h3>${list(c.search_queries)}</div>
     <div class="field"><h3>Для менеджера</h3><b>Кому подходит</b>${list(c.commercial.target_audience)}<b>Задачи</b>${list(c.commercial.tasks)}<p><b>Как предложить:</b> ${esc(c.commercial.pitch)}</p></div>
-    <div class="field"><h3>Экспорт <span>${copyBtn("markdown")} ${copyBtn("json")}</span></h3><pre>${esc(res.markdown)}</pre></div>`;
+    <div class="field"><h3>Markdown ${copyBtn("markdown")}</h3><pre>${esc(res.markdown)}</pre></div>`;
 }
 document.addEventListener("click", e => {
   const k = e.target.dataset && e.target.dataset.copy; if (!k || !last) return;
   const c = last.card;
-  const text = k === "markdown" ? last.markdown : k === "json" ? JSON.stringify(c, null, 2)
+  const text = k === "markdown" ? last.markdown
     : k === "search_queries" ? c.search_queries.join("\n") : c[k];
   navigator.clipboard.writeText(text).then(() => { e.target.textContent = "Скопировано"; setTimeout(() => e.target.textContent = "Копировать", 1200); });
 });
@@ -131,16 +125,16 @@ async function go() {
     const r = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body });
     const data = await r.json();
     if (!r.ok) { $("out").innerHTML = `<p class="err"><b>Ошибка ${r.status}:</b> ${esc(data.error)}${data.details && data.details.length ? "\n• " + data.details.map(esc).join("\n• ") : ""}</p>`; $("status").textContent = ""; return; }
-    render(data); $("status").textContent = "";
+    render(data); $("status").textContent = ""; showModel(data.card.generator);
   } catch (err) { $("out").innerHTML = `<p class="err">Сервис недоступен: ${esc(err)}</p>`; }
   finally { $("go").disabled = false; }
 }
 $("tabForm").onclick = () => setMode("form"); $("tabJson").onclick = () => setMode("json");
 $("addSpec").onclick = () => addSpec();
-$("loadExample").onclick = () => { objToForm(EXAMPLE); if (mode === "json") $("json").value = JSON.stringify(EXAMPLE, null, 2); };
 $("go").onclick = go;
 addSpec();
-fetch("/api/health").then(r => r.json()).then(h => $("mode").textContent = h.mode === "llm" ? "LLM: " + h.provider + " · " + h.model.split(",")[0] + (h.model.includes(",") ? " (+ запасные)" : "") : "демо-режим без LLM (нет API-ключа в .env)");
+function showModel(m) { $("mode").textContent = "Модель: " + m; }
+fetch("/api/health").then(r => r.json()).then(h => h.llm_ready ? showModel(h.model) : $("mode").textContent = "не задан OPENROUTER_API_KEY в .env");
 </script>
 </body>
 </html>

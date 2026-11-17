@@ -63,7 +63,7 @@ class ProductCard(BaseModel):
     missing_fields: List[str]
     clarifications: List[str]
     warnings: List[str]
-    generator: str  # модель или "mock"
+    generator: str  # модель, которая сгенерировала карточку
     attempts: int
 
 
