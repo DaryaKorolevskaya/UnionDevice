@@ -26,7 +26,7 @@ uv run uvicorn union_card.api:app --reload
 
 Откройте http://127.0.0.1:8000, нажмите «Подставить пример», затем «Сформировать карточку».
 
-Бесплатный ключ OpenRouter: зарегистрируйтесь на https://openrouter.ai и создайте ключ на https://openrouter.ai/settings/keys. Банковская карта не нужна.
+Бесплатный ключ OpenRouter: зарегистрируйтесь на https://openrouter.ai и создайте ключ на https://openrouter.ai/settings/keys. Банковская карта не нужна. Сервис **вызывает только бесплатные модели** (`…:free`): платную модель он откажется запускать, пока явно не задан `UNION_ALLOW_PAID=1`.
 
 **Полностью локально, без ключа:** установите [Ollama](https://ollama.com), выполните `ollama pull qwen2.5:7b-instruct` и укажите в `.env` `UNION_PROVIDER=ollama`. Нужно около 8 ГБ памяти, качество текста ниже, чем у крупных моделей.
 
@@ -83,6 +83,7 @@ uv run pytest
 | `UNION_PROVIDER` | `auto` | `openrouter` / `ollama` / `gemini` / `anthropic` / `mock`. При `auto` выбирается первый провайдер, для которого задан ключ |
 | `UNION_MODEL` | зависит от провайдера | модель, например `google/gemma-4-31b-it:free`, `qwen2.5:7b-instruct`, `gemini-3.8-flash`, `claude-opus-5-5` |
 | `UNION_BASE_URL` | — | свой адрес OpenAI-совместимого API |
+| `UNION_ALLOW_PAID` | — | по умолчанию на OpenRouter разрешены только бесплатные модели (`:free`); `1` снимает это ограничение |
 | `UNION_EFFORT` | `medium` | только для Claude: глубина рассуждения `low` / `medium` / `high` |
 | `UNION_MAX_ATTEMPTS` | `3` | сколько раз модель может исправить черновик после автопроверки |
 

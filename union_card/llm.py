@@ -112,6 +112,8 @@ class OpenAICompatGenerator:
         except oa.BadRequestError as e:
             raise LlmError(f"LLM API отклонил запрос: {e.message}", 502) from e
         except oa.APIStatusError as e:
+            if e.status_code == 402:
+                raise LlmError("LLM API требует оплату — выбранная модель не бесплатная.", 402) from e
             raise LlmError(f"LLM API вернул ошибку {e.status_code}, попробуйте позже.", 503) from e
         except oa.APIConnectionError as e:
             raise LlmError("Нет связи с LLM API (сеть/таймаут, для Ollama — запущена ли она?).", 503) from e

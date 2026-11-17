@@ -138,3 +138,16 @@ def test_strip_fences_and_openrouter_default(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     s = Settings.from_env()
     assert s.provider == "openrouter" and s.model.endswith(":free") and "openrouter.ai" in s.base_url
+
+
+def test_paid_openrouter_model_rejected(monkeypatch):
+    from union_card.config import Settings
+
+    monkeypatch.delenv("UNION_ALLOW_PAID", raising=False)
+    monkeypatch.setenv("UNION_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setenv("UNION_MODEL", "google/gemma-4-31b-it")  # без :free — платная
+    with pytest.raises(ValueError, match="платная"):
+        Settings.from_env()
+    monkeypatch.setenv("UNION_MODEL", "qwen/some-model:free")
+    assert Settings.from_env().model == "qwen/some-model:free"

@@ -19,6 +19,11 @@ PROVIDERS = {
 }
 
 
+def is_free_openrouter_model(model: str) -> bool:
+    """На OpenRouter бесплатные модели имеют суффикс «:free»; openrouter/free — роутер по бесплатным."""
+    return model.endswith(":free") or model == "openrouter/free"
+
+
 @dataclass(frozen=True)
 class Settings:
     provider: str
@@ -50,10 +55,18 @@ class Settings:
         if provider in keys and not keys[provider]:
             raise ValueError(f"Для UNION_PROVIDER={provider} не задан API-ключ в .env")
         default_model, default_url = PROVIDERS[provider]
+        model = os.getenv("UNION_MODEL") or default_model
+        if provider == "openrouter" and not is_free_openrouter_model(model):
+            if os.getenv("UNION_ALLOW_PAID", "").strip().lower() not in {"1", "true", "yes"}:
+                raise ValueError(
+                    f"Модель «{model}» на OpenRouter платная. Разрешены только бесплатные модели "
+                    "(id оканчивается на «:free» или openrouter/free). Чтобы всё же использовать платную, "
+                    "задайте UNION_ALLOW_PAID=1."
+                )
         return cls(
             provider=provider,
             api_key=keys.get(provider),
-            model=os.getenv("UNION_MODEL") or default_model,
+            model=model,
             base_url=os.getenv("UNION_BASE_URL") or default_url,
             effort=os.getenv("UNION_EFFORT") or "medium",
             max_attempts=int(os.getenv("UNION_MAX_ATTEMPTS") or "3"),
